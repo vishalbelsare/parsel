@@ -1,9 +1,10 @@
 import re
-from typing import Any, List, Pattern, Union
+from typing import Any, Iterable, Iterator, List, Match, Pattern, Union, cast
+
 from w3lib.html import replace_entities as w3lib_replace_entities
 
 
-def flatten(x):
+def flatten(x: Iterable[Any]) -> List[Any]:
     """flatten(sequence) -> list
     Returns a single, flat list which contains all elements retrieved
     from the sequence and all recursively contained sub-sequences
@@ -21,7 +22,7 @@ def flatten(x):
     return list(iflatten(x))
 
 
-def iflatten(x):
+def iflatten(x: Iterable[Any]) -> Iterator[Any]:
     """iflatten(sequence) -> Iterator
     Similar to ``.flatten()``, but returns iterator instead"""
     for el in x:
@@ -69,7 +70,7 @@ def extract_regex(
     if "extract" in regex.groupindex:
         # named group
         try:
-            extracted = regex.search(text).group("extract")
+            extracted = cast(Match[str], regex.search(text)).group("extract")
         except AttributeError:
             strings = []
         else:

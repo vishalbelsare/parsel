@@ -3,9 +3,6 @@
 import os
 import sys
 
-import parsel
-
-
 # Get the project root dir, which is the parent dir of this
 cwd = os.getcwd()
 project_root = os.path.dirname(cwd)
@@ -15,6 +12,7 @@ project_root = os.path.dirname(cwd)
 # version is used.
 sys.path.insert(0, project_root)
 
+import parsel  # noqa: E402
 
 # -- General configuration ---------------------------------------------
 
@@ -98,9 +96,8 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    ("index", "parsel", "Parsel Documentation", ["Scrapy Project"], 1)
+    ("index", "parsel", "Parsel Documentation", ["Scrapy Project"], 1),
 ]
-
 
 # -- Options for Texinfo output ----------------------------------------
 
@@ -126,6 +123,7 @@ intersphinx_mapping = {
     "cssselect": ("https://cssselect.readthedocs.io/en/latest", None),
     "python": ("https://docs.python.org/3", None),
     "requests": ("https://requests.kennethreitz.org/en/latest", None),
+    "lxml": ("https://lxml.de/apidoc/", None),
 }
 
 
@@ -133,6 +131,8 @@ intersphinx_mapping = {
 
 # nitpicky = True  # https://github.com/scrapy/cssselect/pull/110
 nitpick_ignore = [
+    ("py:class", "ExpressionError"),
+    ("py:class", "SelectorSyntaxError"),
     ("py:class", "cssselect.xpath.GenericTranslator"),
     ("py:class", "cssselect.xpath.HTMLTranslator"),
     ("py:class", "cssselect.xpath.XPathExpr"),

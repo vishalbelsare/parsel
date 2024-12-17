@@ -1,13 +1,21 @@
-import re
-import weakref
-import unittest
 import pickle
-from typing import Any
+import re
+import typing
+import unittest
+import warnings
+import weakref
+from typing import Any, Mapping, Optional, cast
+
+from lxml import etree
+from lxml.html import HtmlElement
+from packaging.version import Version
 
 from parsel import Selector, SelectorList
 from parsel.selector import (
-    CannotRemoveElementWithoutRoot,
+    _NOT_SET,
+    LXML_SUPPORTS_HUGE_TREE,
     CannotRemoveElementWithoutParent,
+    CannotRemoveElementWithoutRoot,
 )
 
 
@@ -23,9 +31,7 @@ class SelectorTestCase(unittest.TestCase):
 
     def test_pickle_selector(self) -> None:
         sel = self.sscls(text="<html><body><p>some text</p></body></html>")
-        self.assertRaises(
-            TypeError, lambda s: pickle.dumps(s, protocol=2), sel
-        )
+        self.assertRaises(TypeError, lambda s: pickle.dumps(s, protocol=2), sel)
 
     def test_pickle_selector_list(self) -> None:
         sel = self.sscls(
@@ -35,9 +41,7 @@ class SelectorTestCase(unittest.TestCase):
         empty_sel_list = sel.css("p")
         self.assertIsSelectorList(sel_list)
         self.assertIsSelectorList(empty_sel_list)
-        self.assertRaises(
-            TypeError, lambda s: pickle.dumps(s, protocol=2), sel_list
-        )
+        self.assertRaises(TypeError, lambda s: pickle.dumps(s, protocol=2), sel_list)
         self.assertRaises(
             TypeError, lambda s: pickle.dumps(s, protocol=2), empty_sel_list
         )
@@ -58,7 +62,8 @@ class SelectorTestCase(unittest.TestCase):
         )
 
         self.assertEqual(
-            [x.extract() for x in sel.xpath("//input[@name='a']/@name")], ["a"]
+            [x.extract() for x in sel.xpath("//input[@name='a']/@name")],
+            ["a"],
         )
         self.assertEqual(
             [
@@ -89,10 +94,7 @@ class SelectorTestCase(unittest.TestCase):
         sel = self.sscls(text=body)
 
         self.assertEqual(
-            [
-                x.extract()
-                for x in sel.xpath("//input[@value=$number]/@name", number=1)
-            ],
+            [x.extract() for x in sel.xpath("//input[@value=$number]/@name", number=1)],
             ["a"],
         )
         self.assertEqual(
@@ -114,15 +116,11 @@ class SelectorTestCase(unittest.TestCase):
 
         # you can also pass booleans
         self.assertEqual(
-            sel.xpath(
-                "boolean(count(//input)=$cnt)=$test", cnt=2, test=True
-            ).extract(),
+            sel.xpath("boolean(count(//input)=$cnt)=$test", cnt=2, test=True).extract(),
             ["1"],
         )
         self.assertEqual(
-            sel.xpath(
-                "boolean(count(//input)=$cnt)=$test", cnt=4, test=True
-            ).extract(),
+            sel.xpath("boolean(count(//input)=$cnt)=$test", cnt=4, test=True).extract(),
             ["0"],
         )
         self.assertEqual(
@@ -152,16 +150,11 @@ class SelectorTestCase(unittest.TestCase):
         t = 'I say "Yeah!"'
         # naive string formatting with give something like:
         # ValueError: XPath error: Invalid predicate in //input[@value="I say "Yeah!""]/@name
-        self.assertRaises(
-            ValueError, sel.xpath, f'//input[@value="{t}"]/@name'
-        )
+        self.assertRaises(ValueError, sel.xpath, f'//input[@value="{t}"]/@name')
 
         # with XPath variables, escaping is done for you
         self.assertEqual(
-            [
-                x.extract()
-                for x in sel.xpath("//input[@value=$text]/@name", text=t)
-            ],
+            [x.extract() for x in sel.xpath("//input[@value=$text]/@name", text=t)],
             ["a"],
         )
         lt = """I'm mixing single and "double quotes" and I don't care :)"""
@@ -174,9 +167,7 @@ class SelectorTestCase(unittest.TestCase):
         self.assertEqual(
             [
                 x.extract()
-                for x in sel.xpath(
-                    "//p[normalize-space()=$lng]//@name", lng=lt
-                )
+                for x in sel.xpath("//p[normalize-space()=$lng]//@name", lng=lt)
             ],
             ["a"],
         )
@@ -200,9 +191,7 @@ class SelectorTestCase(unittest.TestCase):
         )
 
         # for a SelectorList, bring the attributes of first-element only
-        self.assertEqual(
-            {"id": "some-list", "class": "list-cls"}, sel.css("ul").attrib
-        )
+        self.assertEqual({"id": "some-list", "class": "list-cls"}, sel.css("ul").attrib)
         self.assertEqual(
             {"class": "item-cls", "id": "list-item-1"}, sel.css("li").attrib
         )
@@ -222,9 +211,7 @@ class SelectorTestCase(unittest.TestCase):
         body = f"<p><input name='{50 * 'b'}' value='\xa9'/></p>"
         sel = self.sscls(text=body)
 
-        representation = (
-            f"<Selector xpath='//input/@name' data='{37 * 'b'}...'>"
-        )
+        representation = f"<Selector query='//input/@name' data='{37 * 'b'}...'>"
 
         self.assertEqual(
             [repr(it) for it in sel.xpath("//input/@name")], [representation]
@@ -233,9 +220,7 @@ class SelectorTestCase(unittest.TestCase):
     def test_representation_unicode_query(self) -> None:
         body = f"<p><input name='{50 * 'b'}' value='\xa9'/></p>"
 
-        representation = (
-            "<Selector xpath='//input[@value=\"©\"]/@value' data='©'>"
-        )
+        representation = "<Selector query='//input[@value=\"©\"]/@value' data='©'>"
 
         sel = self.sscls(text=body)
         self.assertEqual(
@@ -294,9 +279,7 @@ class SelectorTestCase(unittest.TestCase):
         self.assertEqual(
             sel.xpath("//ul/li[position()>1]")[0].get(), '<li id="2">2</li>'
         )
-        self.assertEqual(
-            sel.xpath("//ul/li[position()>1]/text()")[0].get(), "2"
-        )
+        self.assertEqual(sel.xpath("//ul/li[position()>1]/text()")[0].get(), "2")
 
     def test_selector_getall_alias(self) -> None:
         """Test if get() returns extracted value on a Selector"""
@@ -366,9 +349,7 @@ class SelectorTestCase(unittest.TestCase):
     def test_select_unicode_query(self) -> None:
         body = "<p><input name='\xa9' value='1'/></p>"
         sel = self.sscls(text=body)
-        self.assertEqual(
-            sel.xpath('//input[@name="\xa9"]/@value').extract(), ["1"]
-        )
+        self.assertEqual(sel.xpath('//input[@name="\xa9"]/@value').extract(), ["1"])
 
     def test_list_elements_type(self) -> None:
         """Test Selector returning the same type in selection methods"""
@@ -385,12 +366,8 @@ class SelectorTestCase(unittest.TestCase):
     def test_boolean_result(self) -> None:
         body = "<p><input name='a'value='1'/><input name='b'value='2'/></p>"
         xs = self.sscls(text=body)
-        self.assertEqual(
-            xs.xpath("//input[@name='a']/@name='a'").extract(), ["1"]
-        )
-        self.assertEqual(
-            xs.xpath("//input[@name='a']/@name='n'").extract(), ["0"]
-        )
+        self.assertEqual(xs.xpath("//input[@name='a']/@name='a'").extract(), ["1"])
+        self.assertEqual(xs.xpath("//input[@name='a']/@name='n'").extract(), ["0"])
 
     def test_differences_parsing_xml_vs_html(self) -> None:
         """Test that XML and HTML Selector's behave differently"""
@@ -414,7 +391,7 @@ class SelectorTestCase(unittest.TestCase):
     def test_text_or_root_is_required(self) -> None:
         self.assertRaisesRegex(
             ValueError,
-            "Selector needs either text or root argument",
+            "Selector needs text, body, or root arguments",
             self.sscls,
         )
 
@@ -520,9 +497,7 @@ class SelectorTestCase(unittest.TestCase):
         self.assertEqual(
             sel.xpath('//div[@id="1"]').css("span::text").extract(), ["me"]
         )
-        self.assertEqual(
-            sel.css("#1").xpath("./span/text()").extract(), ["me"]
-        )
+        self.assertEqual(sel.css("#1").xpath("./span/text()").extract(), ["me"])
 
     def test_dont_strip(self) -> None:
         sel = self.sscls(text='<div>fff: <a href="#">zzz</a></div>')
@@ -553,7 +528,8 @@ class SelectorTestCase(unittest.TestCase):
 
         self.assertEqual(
             x.xpath(
-                "//somens:a/text()", namespaces={"somens": "http://scrapy.org"}
+                "//somens:a/text()",
+                namespaces={"somens": "http://scrapy.org"},
             ).extract(),
             ["take this"],
         )
@@ -596,16 +572,12 @@ class SelectorTestCase(unittest.TestCase):
         x.register_namespace("b", "http://somens.com")
         self.assertEqual(len(x.xpath("//xmlns:TestTag")), 1)
         self.assertEqual(x.xpath("//b:Operation/text()").extract()[0], "hello")
-        self.assertEqual(
-            x.xpath("//xmlns:TestTag/@b:att").extract()[0], "value"
-        )
+        self.assertEqual(x.xpath("//xmlns:TestTag/@b:att").extract()[0], "value")
         self.assertEqual(
             x.xpath("//p:SecondTestTag/xmlns:price/text()").extract()[0], "90"
         )
         self.assertEqual(
-            x.xpath("//p:SecondTestTag")
-            .xpath("./xmlns:price/text()")[0]
-            .extract(),
+            x.xpath("//p:SecondTestTag").xpath("./xmlns:price/text()")[0].extract(),
             "90",
         )
         self.assertEqual(
@@ -647,7 +619,8 @@ class SelectorTestCase(unittest.TestCase):
         # "xmlns" is still defined
         self.assertEqual(
             x.xpath(
-                "//xmlns:TestTag/@b:att", namespaces={"b": "http://somens.com"}
+                "//xmlns:TestTag/@b:att",
+                namespaces={"b": "http://somens.com"},
             ).extract()[0],
             "value",
         )
@@ -701,9 +674,7 @@ class SelectorTestCase(unittest.TestCase):
         )
 
         # "p" prefix is not cached from previous calls
-        self.assertRaises(
-            ValueError, x.xpath, "//p:SecondTestTag/xmlns:price/text()"
-        )
+        self.assertRaises(ValueError, x.xpath, "//p:SecondTestTag/xmlns:price/text()")
 
         x.register_namespace("p", "http://www.scrapy.org/product")
         self.assertEqual(
@@ -714,7 +685,7 @@ class SelectorTestCase(unittest.TestCase):
     def test_make_links_absolute(self) -> None:
         text = '<a href="file.html">link to file</a>'
         sel = Selector(text=text, base_url="http://example.com")
-        sel.root.make_links_absolute()
+        typing.cast(HtmlElement, sel.root).make_links_absolute()
         self.assertEqual(
             "http://example.com/file.html",
             sel.xpath("//a/@href").extract_first(),
@@ -775,9 +746,7 @@ class SelectorTestCase(unittest.TestCase):
         )
 
         self.assertEqual(
-            x.xpath("//script/text()").re_first(
-                name_re, replace_entities=False
-            ),
+            x.xpath("//script/text()").re_first(name_re, replace_entities=False),
             expected,
         )
         self.assertEqual(
@@ -788,15 +757,11 @@ class SelectorTestCase(unittest.TestCase):
     def test_re_intl(self) -> None:
         body = "<div>Evento: cumplea\xf1os</div>"
         x = self.sscls(text=body)
-        self.assertEqual(
-            x.xpath("//div").re(r"Evento: (\w+)"), ["cumplea\xf1os"]
-        )
+        self.assertEqual(x.xpath("//div").re(r"Evento: (\w+)"), ["cumplea\xf1os"])
 
     def test_selector_over_text(self) -> None:
         hs = self.sscls(text="<root>lala</root>")
-        self.assertEqual(
-            hs.extract(), "<html><body><root>lala</root></body></html>"
-        )
+        self.assertEqual(hs.extract(), "<html><body><root>lala</root></body></html>")
         xs = self.sscls(text="<root>lala</root>", type="xml")
         self.assertEqual(xs.extract(), "<root>lala</root>")
         self.assertEqual(xs.xpath(".").extract(), ["<root>lala</root>"])
@@ -822,17 +787,13 @@ class SelectorTestCase(unittest.TestCase):
         <head><meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1"></head>
         <body><span id="blank">\xa3</span></body></html>"""
         x = self.sscls(text=text)
-        self.assertEqual(
-            x.xpath("//span[@id='blank']/text()").extract(), ["\xa3"]
-        )
+        self.assertEqual(x.xpath("//span[@id='blank']/text()").extract(), ["\xa3"])
 
     def test_empty_bodies_shouldnt_raise_errors(self) -> None:
         self.sscls(text="").xpath("//text()").extract()
 
     def test_bodies_with_comments_only(self) -> None:
-        sel = self.sscls(
-            text="<!-- hello world -->", base_url="http://example.com"
-        )
+        sel = self.sscls(text="<!-- hello world -->", base_url="http://example.com")
         self.assertEqual("http://example.com", sel.root.base)
 
     def test_null_bytes_shouldnt_raise_errors(self) -> None:
@@ -858,9 +819,7 @@ class SelectorTestCase(unittest.TestCase):
         self.assertEqual(x1.xpath(".//text()").extract(), [])
 
     def test_select_on_text_nodes(self) -> None:
-        r = self.sscls(
-            text="<div><b>Options:</b>opt1</div><div><b>Other</b>opt2</div>"
-        )
+        r = self.sscls(text="<div><b>Options:</b>opt1</div><div><b>Other</b>opt2</div>")
         x1 = r.xpath(
             "//div/descendant::text()[preceding-sibling::b[contains(text(), 'Options')]]"
         )
@@ -874,9 +833,7 @@ class SelectorTestCase(unittest.TestCase):
     @unittest.skip("Text nodes lost parent node reference in lxml")
     def test_nested_select_on_text_nodes(self) -> None:
         # FIXME: does not work with lxml backend [upstream]
-        r = self.sscls(
-            text="<div><b>Options:</b>opt1</div><div><b>Other</b>opt2</div>"
-        )
+        r = self.sscls(text="<div><b>Options:</b>opt1</div><div><b>Other</b>opt2</div>")
         x1 = r.xpath("//div/descendant::text()")
         x2 = x1.xpath("./preceding-sibling::b[contains(text(), 'Options')]")
         self.assertEqual(x2.extract(), ["<b>Options:</b>"])
@@ -929,17 +886,14 @@ class SelectorTestCase(unittest.TestCase):
         self.assertEqual(
             len(
                 sel.xpath(
-                    "//f:link", namespaces={"f": "http://www.w3.org/2005/Atom"}
+                    "//f:link",
+                    namespaces={"f": "http://www.w3.org/2005/Atom"},
                 )
             ),
             2,
         )
         self.assertEqual(
-            len(
-                sel.xpath(
-                    "//s:stop", namespaces={"s": "http://www.w3.org/2000/svg"}
-                )
-            ),
+            len(sel.xpath("//s:stop", namespaces={"s": "http://www.w3.org/2000/svg"})),
             2,
         )
         sel.remove_namespaces()
@@ -987,19 +941,13 @@ class SelectorTestCase(unittest.TestCase):
         li_text = x.xpath("//li/text()")
         self.assertFalse(any([hasattr(e.root, "getparent") for e in li_text]))
         div_class = x.xpath("//div/@class")
-        self.assertFalse(
-            any([hasattr(e.root, "getparent") for e in div_class])
-        )
+        self.assertFalse(any([hasattr(e.root, "getparent") for e in div_class]))
 
         smart_x = SmartStringsSelector(text=body)
         smart_li_text = smart_x.xpath("//li/text()")
-        self.assertTrue(
-            all([hasattr(e.root, "getparent") for e in smart_li_text])
-        )
+        self.assertTrue(all([hasattr(e.root, "getparent") for e in smart_li_text]))
         smart_div_class = smart_x.xpath("//div/@class")
-        self.assertTrue(
-            all([hasattr(e.root, "getparent") for e in smart_div_class])
-        )
+        self.assertTrue(all([hasattr(e.root, "getparent") for e in smart_div_class]))
 
     def test_xml_entity_expansion(self) -> None:
         malicious_xml = (
@@ -1024,7 +972,7 @@ class SelectorTestCase(unittest.TestCase):
             selectorlist_cls = MySelectorList
 
             def extra_method(self) -> str:
-                return "extra" + self.get()
+                return "extra" + cast(str, self.get())
 
         sel = MySelector(text="<html><div>foo</div></html>")
         self.assertIsInstance(sel.xpath("//div"), MySelectorList)
@@ -1046,7 +994,7 @@ class SelectorTestCase(unittest.TestCase):
             text="<html><body><ul><li>1</li><li>2</li><li>3</li></ul></body></html>"
         )
         sel_list = sel.css("li")
-        sel_list.remove()
+        sel_list.drop()
         self.assertIsSelectorList(sel.css("li"))
         self.assertEqual(sel.css("li"), [])
 
@@ -1055,7 +1003,7 @@ class SelectorTestCase(unittest.TestCase):
             text="<html><body><ul><li>1</li><li>2</li><li>3</li></ul></body></html>"
         )
         sel_list = sel.css("li")
-        sel_list[0].remove()
+        sel_list[0].drop()
         self.assertIsSelectorList(sel.css("li"))
         self.assertEqual(sel.css("li::text").getall(), ["2", "3"])
 
@@ -1066,7 +1014,7 @@ class SelectorTestCase(unittest.TestCase):
         sel_list = sel.css("li::text")
         self.assertEqual(sel_list.getall(), ["1", "2", "3"])
         with self.assertRaises(CannotRemoveElementWithoutRoot):
-            sel_list.remove()
+            sel_list.drop()
 
         self.assertIsSelectorList(sel.css("li"))
         self.assertEqual(sel.css("li::text").getall(), ["1", "2", "3"])
@@ -1078,7 +1026,7 @@ class SelectorTestCase(unittest.TestCase):
         sel_list = sel.css("li::text")
         self.assertEqual(sel_list.getall(), ["1", "2", "3"])
         with self.assertRaises(CannotRemoveElementWithoutRoot):
-            sel_list[0].remove()
+            sel_list[0].drop()
 
         self.assertIsSelectorList(sel.css("li"))
         self.assertEqual(sel.css("li::text").getall(), ["1", "2", "3"])
@@ -1090,16 +1038,162 @@ class SelectorTestCase(unittest.TestCase):
         sel_list = sel.css("li::text")
         self.assertEqual(sel_list.getall(), ["1", "2", "3"])
         with self.assertRaises(CannotRemoveElementWithoutParent):
-            sel.remove()
+            sel.drop()
 
         with self.assertRaises(CannotRemoveElementWithoutParent):
-            sel.css("html").remove()
+            sel.css("html").drop()
 
         self.assertIsSelectorList(sel.css("li"))
         self.assertEqual(sel.css("li::text").getall(), ["1", "2", "3"])
 
-        sel.css("body").remove()
+        sel.css("body").drop()
         self.assertEqual(sel.get(), "<html></html>")
+
+    def test_deep_nesting(self) -> None:
+        lxml_version = Version(etree.__version__)
+        lxml_huge_tree_version = Version("4.2")
+
+        content = """
+        <html>
+        <body>
+        <span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span>
+        <span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span>
+        <span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span>
+        <span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span>
+        <span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span>
+        <span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span>
+        <span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span>
+        <span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span>
+        <span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span>
+        <span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span>
+        <span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span>
+        <span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span>
+        <span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span>
+        <span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span>
+        <span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span><span>
+        <span><span><span><span><span><span><span><span><span><span><span><span>
+        hello world
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span></span></span></span></span></span></span>
+        </span></span></span></span></span></span></span></span></span></span>
+        <table>
+         <tr><td>some test</td></tr>
+        </table>
+        </body>
+        </html>
+        """
+
+        # If lxml doesn't support huge trees expect wrong results and a warning
+        if lxml_version < lxml_huge_tree_version:
+            with warnings.catch_warnings(record=True) as w:
+                sel = Selector(text=content)
+                self.assertIn("huge_tree", str(w[0].message))
+                self.assertLessEqual(len(sel.css("span")), 256)
+                self.assertEqual(len(sel.css("td")), 0)
+            return
+
+        # Same goes for explicitly disabling huge trees
+        with warnings.catch_warnings(record=True) as w:
+            sel = Selector(text=content, huge_tree=False)
+            self.assertIn("huge_tree", str(w[0].message))
+            self.assertLessEqual(len(sel.css("span")), 256)
+            self.assertEqual(len(sel.css("td")), 0)
+
+        # If huge trees are enabled, elements with a depth > 255 should be found
+        sel = Selector(text=content)
+        nest_level = 282
+        self.assertEqual(len(sel.css("span")), nest_level)
+        self.assertEqual(len(sel.css("td")), 1)
+
+    def test_invalid_type(self) -> None:
+        with self.assertRaises(ValueError):
+            self.sscls("", type="xhtml")
+
+    def test_default_type(self) -> None:
+        text = "foo"
+        selector = self.sscls(text)
+        self.assertEqual(selector.type, "html")
+
+    def test_json_type(self) -> None:
+        obj = 1
+        selector = self.sscls(str(obj), type="json")
+        self.assertEqual(selector.root, obj)
+        self.assertEqual(selector.type, "json")
+
+    def test_html_root(self) -> None:
+        root = etree.fromstring("<html/>")
+        selector = self.sscls(root=root)
+        self.assertEqual(selector.root, root)
+        self.assertEqual(selector.type, "html")
+
+    def test_json_root(self) -> None:
+        obj = 1
+        selector = self.sscls(root=obj)
+        self.assertEqual(selector.root, obj)
+        self.assertEqual(selector.type, "json")
+
+    def test_json_xpath(self) -> None:
+        obj = 1
+        selector = self.sscls(root=obj)
+        with self.assertRaises(ValueError):
+            selector.xpath("//*")
+
+    def test_json_css(self) -> None:
+        obj = 1
+        selector = self.sscls(root=obj)
+        with self.assertRaises(ValueError):
+            selector.css("*")
+
+    def test_invalid_json(self) -> None:
+        text = "<html/>"
+        selector = self.sscls(text, type="json")
+        self.assertEqual(selector.root, None)
+        self.assertEqual(selector.type, "json")
+
+    def test_text_and_root_warning(self) -> None:
+        with warnings.catch_warnings(record=True) as w:
+            Selector(text="a", root="b")
+            self.assertIn("both text and root", str(w[0].message))
+
+    def test_etree_root_invalid_type(self) -> None:
+        selector = Selector("<html></html>")
+        self.assertRaisesRegex(
+            ValueError,
+            "object as root",
+            Selector,
+            root=selector.root,
+            type="text",
+        )
+        self.assertRaisesRegex(
+            ValueError,
+            "object as root",
+            Selector,
+            root=selector.root,
+            type="json",
+        )
+
+    def test_json_selector_representation(self) -> None:
+        selector = Selector(text="true")
+        assert repr(selector) == "<Selector query=None data='True'>"
+        assert str(selector) == "True"
+        selector = Selector(text="1")
+        assert repr(selector) == "<Selector query=None data='1'>"
+        assert str(selector) == "1"
 
 
 class ExsltTestCase(unittest.TestCase):
@@ -1121,30 +1215,18 @@ class ExsltTestCase(unittest.TestCase):
         # re:test()
         self.assertEqual(
             sel.xpath('//input[re:test(@name, "[A-Z]+", "i")]').extract(),
-            [
-                x.extract()
-                for x in sel.xpath('//input[re:test(@name, "[A-Z]+", "i")]')
-            ],
+            [x.extract() for x in sel.xpath('//input[re:test(@name, "[A-Z]+", "i")]')],
         )
         self.assertEqual(
-            [
-                x.extract()
-                for x in sel.xpath(r'//a[re:test(@href, "\.html$")]/text()')
-            ],
+            [x.extract() for x in sel.xpath(r'//a[re:test(@href, "\.html$")]/text()')],
             ["first link", "second link"],
         )
         self.assertEqual(
-            [
-                x.extract()
-                for x in sel.xpath('//a[re:test(@href, "first")]/text()')
-            ],
+            [x.extract() for x in sel.xpath('//a[re:test(@href, "first")]/text()')],
             ["first link"],
         )
         self.assertEqual(
-            [
-                x.extract()
-                for x in sel.xpath('//a[re:test(@href, "second")]/text()')
-            ],
+            [x.extract() for x in sel.xpath('//a[re:test(@href, "second")]/text()')],
             ["second link"],
         )
 
@@ -1174,9 +1256,7 @@ class ExsltTestCase(unittest.TestCase):
                 r're:replace(//a[re:test(@href, "\.xml$")]/@href,'
                 r'"(\w+)://(.+)(\.xml)", "","https://\2.html")'
             ).extract(),
-            [
-                "https://www.bayes.co.uk/xml/index.xml?/xml/utils/rechecker.html"
-            ],
+            ["https://www.bayes.co.uk/xml/index.xml?/xml/utils/rechecker.html"],
         )
 
     def test_set(self) -> None:
@@ -1241,3 +1321,74 @@ class ExsltTestCase(unittest.TestCase):
             ).extract(),
             ["url", "name", "startDate", "location", "offers"],
         )
+
+    def test_dont_remove_text_after_deleted_element(self) -> None:
+        sel = self.sscls(
+            text="""<html><body>Text before.<span>Text in.</span> Text after.</body></html>
+            """
+        )
+        sel.css("span").drop()
+        self.assertEqual(
+            sel.get(), "<html><body>Text before. Text after.</body></html>"
+        )
+
+    def test_drop_with_xml_type(self) -> None:
+        sel = self.sscls(text="<a><b></b><c/></a>", type="xml")
+        el = sel.xpath("//b")[0]
+        assert el.root.getparent() is not None
+        el.drop()
+        assert sel.get() == "<a><c/></a>"
+
+
+class SelectorBytesInput(Selector):
+    def __init__(
+        self,
+        text: Optional[str] = None,
+        type: Optional[str] = None,
+        body: bytes = b"",
+        encoding: str = "utf-8",
+        namespaces: Optional[Mapping[str, str]] = None,
+        root: Optional[Any] = _NOT_SET,
+        base_url: Optional[str] = None,
+        _expr: Optional[str] = None,
+        huge_tree: bool = LXML_SUPPORTS_HUGE_TREE,
+    ) -> None:
+        if text:
+            body = bytes(text, encoding=encoding)
+            text = None
+        super().__init__(
+            text=text,
+            type=type,
+            body=body,
+            encoding=encoding,
+            namespaces=namespaces,
+            root=root,
+            base_url=base_url,
+            _expr=_expr,
+            huge_tree=huge_tree,
+        )
+
+
+class SelectorTestCaseBytes(SelectorTestCase):
+    sscls = SelectorBytesInput
+
+    def test_representation_slice(self) -> None:
+        pass
+
+    def test_representation_unicode_query(self) -> None:
+        pass
+
+    def test_weakref_slots(self) -> None:
+        pass
+
+    def test_check_text_argument_type(self) -> None:
+        self.assertRaisesRegex(
+            TypeError,
+            "body argument should be of type",
+            self.sscls,
+            body="<html/>",
+        )
+
+
+class ExsltTestCaseBytes(ExsltTestCase):
+    sscls = SelectorBytesInput
